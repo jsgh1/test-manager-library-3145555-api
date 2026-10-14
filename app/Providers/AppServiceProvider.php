@@ -8,6 +8,8 @@ use App\Application\Ports\UserAccounts;
 use App\Application\Ports\PasswordHasher;
 use App\Application\Ports\TokenIssuer;
 use App\Application\Ports\MostBorrowedReader;
+use App\Application\Ports\BookCatalog;
+use App\Adapters\Persistence\PostgresBookCatalog;
 use App\Adapters\Persistence\PostgresMostBorrowedReader;
 use App\Adapters\Persistence\PostgresUserAccounts;
 use App\Adapters\Security\ArgonPasswordHasher;
@@ -29,6 +31,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(PasswordHasher::class, ArgonPasswordHasher::class);
         $this->app->bind(TokenIssuer::class, Hs256TokenIssuer::class);
         $this->app->bind(MostBorrowedReader::class, PostgresMostBorrowedReader::class);
+        $this->app->bind(BookCatalog::class, PostgresBookCatalog::class);
     }
 
     public function boot(): void {}

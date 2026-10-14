@@ -14,7 +14,10 @@ final class ApiController extends Controller {
         private readonly \App\Application\Services\ReturnItemService $returns,
         private readonly \App\Application\Services\LoginService $loginService,
         private readonly \App\Application\Services\CreateLibrarianService $createLibrarian,
-        private readonly \App\Application\Services\MostBorrowedReportService $reportService
+        private readonly \App\Application\Services\MostBorrowedReportService $reportService,
+        private readonly \App\Application\Services\CreateBookService $createBookService,
+        private readonly \App\Application\Services\UpdateBookService $updateBookService,
+        private readonly \App\Application\Services\WithdrawBookService $withdrawBookService
     ) {}
     private function id(): string {return (string) Str::uuid();}
     private function fail(string $code,int $status,string $message,array $details=[]): never {throw new ApiError($code,$status,$message,$details);}
@@ -83,43 +86,37 @@ final class ApiController extends Controller {
     private function categoryExists(string $id): void {
         if(!DB::table('library.category')->where('id',$id)->exists())$this->fail('VALIDATION_ERROR',422,'Invalid category.');
     }
-    public function createBook(Request $r) {
-        $v=$this->required($r,['title'=>'required|string|max:250','author'=>'required|string|max:200',
-             'isbn'=>'required|digits:13','category_id'=>'required|uuid','total_copies'=>'required|integer|min:1']);
-        $this->categoryExists($v['category_id']);
-        if(DB::table('library.book')->where('isbn',$v['isbn'])->whereNull('deleted_at')->exists())$this->fail('ISBN_TAKEN',409,'ISBN already exists.');
-        $id=$this->id();
-        DB::table('library.book')->insert([
-         'id'=>$id,'title'=>trim($v['title']),'author'=>trim($v['author']),'isbn'=>$v['isbn'],
-         'category_id'=>$v['category_id'],'total_copies'=>$v['total_copies'],'available_copies'=>$v['total_copies'],
-         'cover_key'=>null,'deleted_at'=>null
+    public function createBook(Request $r)
+    {
+        $v = $this->required($r, [
+            'title' => 'required|string|max:250',
+            'author' => 'required|string|max:200',
+            'isbn' => 'required|digits:13',
+            'category_id' => 'required|uuid',
+            'total_copies' => 'required|integer|min:1',
         ]);
-        return response()->json($this->bookRow($this->activeBook($id)),201);
+        $id = $this->createBookService->execute($v);
+        return response()->json($this->bookRow($this->activeBook($id)), 201);
     }
-    public function updateBook(Request $r,string $id) {
-        $v=$this->required($r,['title'=>'required|string|max:250','author'=>'required|string|max:200','category_id'=>'required|uuid','total_copies'=>'required|integer|min:1']);
-        $this->categoryExists($v['category_id']);
-        DB::transaction(function()use($id,$v){
-            $b=DB::table('library.book')->where('id',$id)->whereNull('deleted_at')->lockForUpdate()->first();
-            if(!$b)$this->fail('NOT_FOUND',404,'Book not found.');
-            $available=$b->available_copies+$v['total_copies']-$b->total_copies;
-            if($available<0)$this->fail('VALIDATION_ERROR',422,'Total copies cannot fall below checked-out copies.');
-            DB::table('library.book')->where('id',$id)->update([
-                'title'=>trim($v['title']),'author'=>trim($v['author']),
-                'category_id'=>$v['category_id'],'total_copies'=>$v['total_copies'],'available_copies'=>$available
-            ]);
-        });
+
+    public function updateBook(Request $r, string $id)
+    {
+        $v = $this->required($r, [
+            'title' => 'required|string|max:250',
+            'author' => 'required|string|max:200',
+            'category_id' => 'required|uuid',
+            'total_copies' => 'required|integer|min:1',
+        ]);
+        $this->updateBookService->execute($id, $v);
         return $this->book($id);
     }
-    public function deleteBook(string $id) {
-        DB::transaction(function()use($id){
-            $b=DB::table('library.book')->where('id',$id)->whereNull('deleted_at')->lockForUpdate()->first();
-            if(!$b)$this->fail('NOT_FOUND',404,'Book not found.');
-            if(DB::table('library.loan_item')->where('book_id',$id)->whereNull('returned_at')->exists())$this->fail('BOOK_HAS_OPEN_LOANS',409,'Book has open loans.');
-            DB::table('library.book')->where('id',$id)->update(['deleted_at'=>now('UTC')]);
-        });
+
+    public function deleteBook(string $id)
+    {
+        $this->withdrawBookService->execute($id);
         return response()->noContent();
     }
+
     private function coversDir(): string {return (string)env('COVERS_DIR',storage_path('covers'));}
     public function putCover(Request $r,string $id) {
         $this->activeBook($id);
