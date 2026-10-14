@@ -19,3 +19,63 @@ jobs:
         run: find app bootstrap config database routes tests public -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Run domain tests
         run: composer test
+
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: manager_library
+          POSTGRES_PASSWORD: integration_only_password
+          POSTGRES_DB: manager_library
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U manager_library -d manager_library"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      APP_NAME: ManagerLibrary
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      APP_KEY: 'base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_DATABASE: manager_library
+      DB_USERNAME: manager_library
+      DB_PASSWORD: integration_only_password
+      JWT_SECRET: integration_only_secret_key_123456789_abcdef
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: integration_only_strong_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_pgsql, pgsql, xml, curl, dom
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+      - name: Migrate and provision admin
+        run: |
+          php artisan migrate --force
+          php artisan library:bootstrap-admin
+      - name: Start server and exercise contract
+        run: |
+          php artisan serve --host=127.0.0.1 --port=8000 > /tmp/laravel.log 2>&1 &
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8000/health && break || sleep 1; done
+          curl -fsS http://127.0.0.1:8000/api/v1/health | jq -e '.status=="ok"'
+          token=$(curl -fsS -H 'Content-Type: application/json' -d '{"username":"admin","password":"integration_only_strong_password"}' http://127.0.0.1:8000/api/v1/auth/login | jq -r '.access_token')
+          test -n "$token"
+          curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8000/api/v1/categories | jq -e 'length==5'
+          category=11111111-1111-4111-8111-111111111111
+          book=$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "{\"title\":\"Test Book\",\"author\":\"Test Author\",\"isbn\":\"9781234567890\",\"category_id\":\"$category\",\"total_copies\":2}" http://127.0.0.1:8000/api/v1/books | jq -r .id)
+          member=$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"full_name":"QA Member","document_number":"QA001"}' http://127.0.0.1:8000/api/v1/members | jq -r .id)
+          loan_json=$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "{\"member_id\":\"$member\",\"items\":[{\"book_id\":\"$book\"}]}" http://127.0.0.1:8000/api/v1/loans)
+          echo "$loan_json" | jq -e '.status=="open" and (.items|length==1)'
+          loan=$(echo "$loan_json"|jq -r .id)
+          item=$(echo "$loan_json"|jq -r '.items[0].id')
+          curl -fsS -X POST -H "Authorization: Bearer $token" http://127.0.0.1:8000/api/v1/loans/$loan/items/$item/return | jq -e '.returned_at!=null'
+          curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8000/api/v1/loans/$loan | jq -e '.status=="closed"'
+          echo "End-to-end PostgreSQL API contract smoke test passed."
