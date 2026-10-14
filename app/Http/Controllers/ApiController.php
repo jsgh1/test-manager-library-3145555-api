@@ -13,7 +13,8 @@ final class ApiController extends Controller {
         private readonly \App\Application\Services\LendBooksService $lender,
         private readonly \App\Application\Services\ReturnItemService $returns,
         private readonly \App\Application\Services\LoginService $loginService,
-        private readonly \App\Application\Services\CreateLibrarianService $createLibrarian
+        private readonly \App\Application\Services\CreateLibrarianService $createLibrarian,
+        private readonly \App\Application\Services\MostBorrowedReportService $reportService
     ) {}
     private function id(): string {return (string) Str::uuid();}
     private function fail(string $code,int $status,string $message,array $details=[]): never {throw new ApiError($code,$status,$message,$details);}
@@ -225,14 +226,12 @@ final class ApiController extends Controller {
         ]);
         return $data;
     }
-    public function report(Request $r) {
-        $v=$this->required($r,['from'=>'required|date_format:Y-m-d','to'=>'required|date_format:Y-m-d']);
-        if($v['to']<$v['from'])$this->fail('INVALID_DATE_RANGE',422,'End date must not be before start date.');
-        $rows=DB::table('library.loan_item as li')->join('library.loan as l','l.id','=','li.loan_id')
-          ->whereDate('l.loaned_at','>=',$v['from'])->whereDate('l.loaned_at','<=',$v['to'])
-          ->select('li.book_id','li.book_title','li.category_name')->selectRaw('COUNT(*) as times_borrowed')
-          ->groupBy('li.book_id','li.book_title','li.category_name')
-          ->orderByDesc('times_borrowed')->orderBy('li.book_title')->get();
-        return ['from'=>$v['from'],'to'=>$v['to'],'rows'=>$rows];
+    public function report(Request $r)
+    {
+        $v = $this->required($r, [
+            'from' => 'required|date_format:Y-m-d',
+            'to' => 'required|date_format:Y-m-d',
+        ]);
+        return $this->reportService->execute($v['from'], $v['to']);
     }
 }
