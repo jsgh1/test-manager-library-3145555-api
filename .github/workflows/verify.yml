@@ -78,4 +78,23 @@ jobs:
           item=$(echo "$loan_json"|jq -r '.items[0].id')
           curl -fsS -X POST -H "Authorization: Bearer $token" http://127.0.0.1:8000/api/v1/loans/$loan/items/$item/return | jq -e '.returned_at!=null'
           curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8000/api/v1/loans/$loan | jq -e '.status=="closed"'
-          echo "End-to-end PostgreSQL API contract smoke test passed."
+          # Check security, duplicate returns, historical reporting, and last-copy concurrency.
+          unauth=$(curl -s -o /tmp/unauthorized.json -w '%{http_code}' http://127.0.0.1:8000/api/v1/members)
+          test "$unauth" = 401
+          double_return=$(curl -s -X POST -H "Authorization: Bearer $token" -o /tmp/double_return.json -w '%{http_code}' http://127.0.0.1:8000/api/v1/loans/$loan/items/$item/return)
+          test "$double_return" = 409
+          jq -e '.code=="ITEM_ALREADY_RETURNED"' /tmp/double_return.json
+          curl -fsS -X PUT -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "{\\"title\\":\\"Renamed Book\\",\\"author\\":\\"Test Author\\",\\"category_id\\":\\"$category\\",\\"total_copies\\":2}" http://127.0.0.1:8000/api/v1/books/$book | jq -e '.title=="Renamed Book"'
+          day=$(date -u +%F)
+          curl -fsS -H "Authorization: Bearer $token" "http://127.0.0.1:8000/api/v1/reports/most-borrowed?from=$day&to=$day" | jq -e '.rows[0].book_title=="Test Book"'
+          last_book=$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "{\\"title\\":\\"Last Copy\\",\\"author\\":\\"QA Author\\",\\"isbn\\":\\"9781234567891\\",\\"category_id\\":\\"$category\\",\\"total_copies\\":1}" http://127.0.0.1:8000/api/v1/books | jq -r .id)
+          payload="{\\"member_id\\":\\"$member\\",\\"items\\":[{\\"book_id\\":\\"$last_book\\"}]}"
+          curl -s -o /tmp/loan1.json -w '%{http_code}' -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "$payload" http://127.0.0.1:8000/api/v1/loans > /tmp/status1 &
+          pid1=$!
+          curl -s -o /tmp/loan2.json -w '%{http_code}' -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "$payload" http://127.0.0.1:8000/api/v1/loans > /tmp/status2 &
+          pid2=$!
+          wait "$pid1"
+          wait "$pid2"
+          printf 'Concurrent status codes: %s %s\\n' "$(cat /tmp/status1)" "$(cat /tmp/status2)"
+          test "$(cat /tmp/status1) $(cat /tmp/status2)" = "201 409" || test "$(cat /tmp/status1) $(cat /tmp/status2)" = "409 201"
+          echo "End-to-end PostgreSQL API contract and concurrency smoke tests passed."
