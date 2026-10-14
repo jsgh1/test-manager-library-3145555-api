@@ -1,6 +1,9 @@
 <?php
 namespace Tests;
 use PHPUnit\Framework\TestCase;
+use InvalidArgumentException;
+use DomainException;
+use DateTimeImmutable;
 use App\Domain\Isbn;
 use App\Domain\Quantity;
 use App\Domain\Book;
