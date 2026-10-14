@@ -9,6 +9,10 @@ use Illuminate\Support\Str;
 use Illuminate\Routing\Controller;
 use Carbon\CarbonImmutable;
 final class ApiController extends Controller {
+    public function __construct(
+        private readonly \App\Application\Services\LendBooksService $lender,
+        private readonly \App\Application\Services\ReturnItemService $returns
+    ) {}
     private function id(): string {return (string) Str::uuid();}
     private function fail(string $code,int $status,string $message,array $details=[]): never {throw new ApiError($code,$status,$message,$details);}
     private function required(Request $r,array $rules): array {return $r->validate($rules);}
@@ -167,57 +171,24 @@ final class ApiController extends Controller {
         return ['id'=>$l->id,'member_id'=>$l->member_id,'loaned_at'=>CarbonImmutable::parse($l->loaned_at)->utc()->format('Y-m-d\TH:i:s\Z'),
           'status'=>Loan::status($items,new \DateTimeImmutable('now',new \DateTimeZone('UTC'))),'items'=>$items];
     }
-    public function lend(Request $r) {
-        $v=$this->required($r,['member_id'=>'required|uuid','items'=>'required|array|min:1|max:3','items.*.book_id'=>'required|uuid']);
-        $ids=array_column($v['items'],'book_id');
-        if(count(array_unique($ids))!==count($ids))$this->fail('DUPLICATE_BOOK_IN_LOAN',422,'A loan cannot repeat a book.');
-        $operator=$r->attributes->get('operator');
-        $id=DB::transaction(function()use($v,$ids,$operator){
-            $member=DB::table('library.member')->where('id',$v['member_id'])->lockForUpdate()->first();
-            if(!$member)$this->fail('NOT_FOUND',404,'Member not found.');
-            $active=DB::table('library.loan_item as li')->join('library.loan as l','l.id','=','li.loan_id')
-              ->where('l.member_id',$member->id)->whereNull('li.returned_at')->get(['li.due_at']);
-            foreach($active as $line)if(CarbonImmutable::parse($line->due_at)->lessThan(CarbonImmutable::now('UTC')))
-               $this->fail('MEMBER_HAS_OVERDUE',409,'Member has overdue books.');
-            if($active->count()+count($ids)>3)$this->fail('MEMBER_LIMIT_EXCEEDED',422,'Member already has too many borrowed books.',[['field'=>'items','issue'=>'active count: '.$active->count()]]);
-            $now=CarbonImmutable::now('UTC');
-            $loanId=$this->id();
-            $books=DB::table('library.book as b')->join('library.category as c','c.id','=','b.category_id')
-               ->whereIn('b.id',$ids)->whereNull('b.deleted_at')
-               ->get(['b.id','b.title','b.isbn','c.name as category_name'])->keyBy('id');
-            foreach($ids as $bookId)if(!$books->has($bookId))$this->fail('NOT_FOUND',404,'Book not found.');
-            foreach($ids as $bookId){
-                $affected=DB::table('library.book')->where('id',$bookId)->whereNull('deleted_at')->where('available_copies','>',0)
-                    ->decrement('available_copies');
-                if($affected!==1)$this->fail('BOOK_NOT_AVAILABLE',409,'No copies are available.');
-            }
-            DB::table('library.loan')->insert(['id'=>$loanId,'member_id'=>$member->id,'loaned_by_user_id'=>$operator['id'],'loaned_at'=>$now]);
-            foreach($ids as $bookId){
-                $b=$books[$bookId];
-                DB::table('library.loan_item')->insert([
-                    'id'=>$this->id(),'loan_id'=>$loanId,'book_id'=>$bookId,
-                    'book_title'=>$b->title,'isbn'=>$b->isbn,'category_name'=>$b->category_name,
-                    'due_at'=>$now->addDays(14),'returned_at'=>null
-                ]);
-            }
-            return $loanId;
-        },3);
-        return response()->json($this->loanRow($id),201);
+    public function lend(Request $r)
+    {
+        $v = $this->required($r, [
+            'member_id' => 'required|uuid',
+            'items' => 'required|array|min:1|max:3',
+            'items.*.book_id' => 'required|uuid',
+        ]);
+        $id = $this->lender->execute(
+            $v['member_id'],
+            array_column($v['items'], 'book_id'),
+            $r->attributes->get('operator')['id']
+        );
+        return response()->json($this->loanRow($id), 201);
     }
-    public function returnItem(string $id,string $item) {
-        $result=DB::transaction(function()use($id,$item){
-            $line=DB::table('library.loan_item')->where('id',$item)->where('loan_id',$id)->lockForUpdate()->first();
-            if(!$line)$this->fail('NOT_FOUND',404,'Loan item not found.');
-            if($line->returned_at)$this->fail('ITEM_ALREADY_RETURNED',409,'Item was already returned.');
-            $at=CarbonImmutable::now('UTC');
-            DB::table('library.loan_item')->where('id',$item)->update(['returned_at'=>$at]);
-            DB::table('library.book')->where('id',$line->book_id)->increment('available_copies');
-            return ['id'=>$line->id,'book_id'=>$line->book_id,'book_title'=>$line->book_title,
-                'isbn'=>trim($line->isbn),'category_name'=>$line->category_name,
-                'due_at'=>CarbonImmutable::parse($line->due_at)->utc()->format('Y-m-d\TH:i:s\Z'),
-                'returned_at'=>$at->format('Y-m-d\TH:i:s\Z')];
-        });
-        return response()->json($result);
+
+    public function returnItem(string $id, string $item)
+    {
+        return response()->json($this->returns->execute($id, $item));
     }
     public function loan(string $id) {return $this->loanRow($id);}
     public function loans(Request $r) {

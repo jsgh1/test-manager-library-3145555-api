@@ -2,6 +2,7 @@
 use App\Console\Commands\BootstrapAdmin;
 use App\Http\Middleware\BearerOperator;
 use App\Support\ApiError;
+use App\Application\BusinessFailure;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -20,6 +21,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\Throwable $e, Request $request) {
             if (!$request->is('api/*') && !$request->is('health')) {
                 return null;
+            }
+            if ($e instanceof BusinessFailure) {
+                $status = match ($e->errorCode) {
+                    'NOT_FOUND' => 404,
+                    'MEMBER_HAS_OVERDUE', 'BOOK_NOT_AVAILABLE', 'ITEM_ALREADY_RETURNED', 'STOCK_CONFLICT' => 409,
+                    default => 422,
+                };
+                return response()->json([
+                    'code' => $e->errorCode,
+                    'message' => $e->getMessage(),
+                    'details' => $e->details,
+                ], $status);
             }
             if ($e instanceof ApiError) {
                 return response()->json(['code' => $e->errorCode, 'message' => $e->getMessage(), 'details' => $e->details], $e->httpStatus);
