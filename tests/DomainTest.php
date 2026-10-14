@@ -1,4 +1,5 @@
 <?php
+namespace Tests;
 use PHPUnit\Framework\TestCase;
 use App\Domain\Isbn;
 use App\Domain\Quantity;
