@@ -1,50 +1,18 @@
-# test-manager-library-3145555-api
+# Manager Library API — Laravel 12 / PostgreSQL 16
 
-> **Prueba técnica · Ficha ADSO 3145555**
-> Horario: **miércoles 14 de octubre de 2026, de 6:50 a. m. a 11:00 a. m.** (hora Colombia). Entrega a las **11:00 a. m.**
+Business contract: [adapted English specification](https://github.com/jsgh1/test-manager-library-3145555-docs/tree/main/spec-react-laravel), retaining the reference's 10 user stories and API protocol.
 
-Este repositorio es el **backend** de *Manager Library*, en **PHP con Laravel**. **Empieza vacío a propósito**: se construye en el fork de cada aprendiz.
+## Bootstrap
 
-## Instrucciones
+Requires PHP 8.3+, Composer, PostgreSQL 16 (`pdo_pgsql`), and a configured environment. Copy `.env.example` to `.env`; replace secret placeholders and never commit real credentials. Run `composer install`, `php artisan migrate --force`, `php artisan library:bootstrap-admin`, then `php artisan serve --host=0.0.0.0 --port=8000`. The infra repository supplies Docker-based launch.
 
-Cada aprendiz debe **crear el fork** de los seis repositorios del proyecto y **resolver el proyecto
-con el spec planteado**.
+Health: `GET /health` and `GET /api/v1/health` both return `{"status":"ok"}`.
 
-1. Hacer fork, a su cuenta de GitHub, de cada repositorio de la tabla del final.
-2. Leer el spec en [`test-manager-library-3145555-docs`](https://github.com/code-sena/test-manager-library-3145555-docs).
-   Se entrega en dos versiones: `spec-python/` y `spec-.net/`.
-3. Desarrollar en los forks.
+The API owns the PostgreSQL `library` schema and its **six** tables (singular names, UUID application-assigned PKs, no default columns, fixed category seed). Framework's `migrations` bookkeeping remains in the `public` schema. The reference's T-18 constraints are introduced in a separate migration.
 
-## El reto se desarrolla con React y PHP (Laravel)
+## Evidence
 
-El spec está escrito para Python y para .NET, pero el reto **no** se hace en esos lenguajes:
-
-| Capa | Tecnología del reto |
-|---|---|
-| Frontend | React |
-| Backend | PHP con Laravel |
-
-Lo que el spec define sobre el negocio —historias, criterios de aceptación, reglas, contrato de la
-API, modelo de datos— se respeta. Lo que define sobre la tecnología se traduce a React y Laravel.
-
-## La prueba no consiste en escribir el código
-
-El propósito principal es ver la **capacidad de desempeño con SDD** (*Spec-Driven Development*,
-desarrollo guiado por especificación): cómo se lee, se interpreta y se aplica una especificación
-para llevarla a un stack distinto. El código es el medio, no el fin.
-
-## Entrega
-
-Cuenta lo que quede **subido a los forks antes de las 11:00 a. m.** Lo que llegue después no se revisa.
-No hay prórroga: suban avances parciales con commits pequeños durante la prueba.
-
-## Los seis repositorios
-
-| Repositorio | Qué va ahí |
-|---|---|
-| [`test-manager-library-3145555-docs`](https://github.com/code-sena/test-manager-library-3145555-docs) | El spec: `spec-python/` y `spec-.net/` |
-| [`test-manager-library-3145555-api`](https://github.com/code-sena/test-manager-library-3145555-api) | Backend en PHP (Laravel) |
-| [`test-manager-library-3145555-app`](https://github.com/code-sena/test-manager-library-3145555-app) | Frontend en React |
-| [`test-manager-library-3145555-page`](https://github.com/code-sena/test-manager-library-3145555-page) | Sitio público estático de presentación |
-| [`test-manager-library-3145555-infra`](https://github.com/code-sena/test-manager-library-3145555-infra) | Contenedores, red, volúmenes y motor de base de datos vacío |
-| [`test-manager-library-3145555-tool`](https://github.com/code-sena/test-manager-library-3145555-tool) | Utilidades: sembrador de datos de demostración |
+- `composer test` runs PHP domain tests (requires dependencies installed).
+- Inspect PostgreSQL with the three exact SQL verification queries in `spec-python/data-model.md` §10.
+- The initial admin is provisioned with environment credentials, with an Argon2id hash; no admin account creation endpoint is exposed.
+- The full HTTP implementation and integration/concurrency acceptance suites are tracked separately; do not infer they passed from this scaffold alone.
