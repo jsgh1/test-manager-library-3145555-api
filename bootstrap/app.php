@@ -25,6 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($e instanceof BusinessFailure) {
                 $status = match ($e->errorCode) {
                     'NOT_FOUND' => 404,
+                    'INVALID_CREDENTIALS' => 401,
+                    'USERNAME_TAKEN' => 409,
                     'MEMBER_HAS_OVERDUE', 'BOOK_NOT_AVAILABLE', 'ITEM_ALREADY_RETURNED', 'STOCK_CONFLICT' => 409,
                     default => 422,
                 };

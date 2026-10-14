@@ -4,6 +4,12 @@ namespace App\Providers;
 use App\Application\Ports\Clock;
 use App\Application\Ports\IdGenerator;
 use App\Application\Ports\LendingPort;
+use App\Application\Ports\UserAccounts;
+use App\Application\Ports\PasswordHasher;
+use App\Application\Ports\TokenIssuer;
+use App\Adapters\Persistence\PostgresUserAccounts;
+use App\Adapters\Security\ArgonPasswordHasher;
+use App\Adapters\Security\Hs256TokenIssuer;
 use App\Adapters\Time\SystemClock;
 use App\Adapters\Identity\LaravelIdGenerator;
 use App\Adapters\Persistence\PostgresLendingAdapter;
@@ -17,6 +23,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(Clock::class, SystemClock::class);
         $this->app->bind(IdGenerator::class, LaravelIdGenerator::class);
         $this->app->bind(LendingPort::class, PostgresLendingAdapter::class);
+        $this->app->bind(UserAccounts::class, PostgresUserAccounts::class);
+        $this->app->bind(PasswordHasher::class, ArgonPasswordHasher::class);
+        $this->app->bind(TokenIssuer::class, Hs256TokenIssuer::class);
     }
 
     public function boot(): void {}

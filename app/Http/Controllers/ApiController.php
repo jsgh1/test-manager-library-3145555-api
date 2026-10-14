@@ -11,7 +11,9 @@ use Carbon\CarbonImmutable;
 final class ApiController extends Controller {
     public function __construct(
         private readonly \App\Application\Services\LendBooksService $lender,
-        private readonly \App\Application\Services\ReturnItemService $returns
+        private readonly \App\Application\Services\ReturnItemService $returns,
+        private readonly \App\Application\Services\LoginService $loginService,
+        private readonly \App\Application\Services\CreateLibrarianService $createLibrarian
     ) {}
     private function id(): string {return (string) Str::uuid();}
     private function fail(string $code,int $status,string $message,array $details=[]): never {throw new ApiError($code,$status,$message,$details);}
@@ -42,21 +44,23 @@ final class ApiController extends Controller {
         if(!$m)$this->fail('NOT_FOUND',404,'Member not found.');
         return $m;
     }
-    public function login(Request $r) {
-        $v=$this->required($r,['username'=>'required|string','password'=>'required|string']);
-        $u=DB::table('library.user')->where('username',strtolower(trim($v['username'])))->first();
-        if(!$u || !password_verify($v['password'],$u->password_hash)) $this->fail('INVALID_CREDENTIALS',401,'Invalid credentials.');
-        return ['access_token'=>Jwt::issue($u->id,$u->role),'token_type'=>'Bearer','expires_in'=>28800,'role'=>$u->role];
+    public function login(Request $r)
+    {
+        $v = $this->required($r, ['username' => 'required|string', 'password' => 'required|string']);
+        return $this->loginService->execute($v['username'], $v['password']);
     }
-    public function createUser(Request $r) {
-        $v=$this->required($r,['username'=>'required|string|max:120','password'=>'required|string|min:8','role'=>'required|string']);
-        if($v['role']!=='librarian') $this->fail('VALIDATION_ERROR',422,'Only librarians can be created through the API.');
-        $name=strtolower(trim($v['username']));
-        if($name==='')$this->fail('VALIDATION_ERROR',422,'Username must not be blank.');
-        if(DB::table('library.user')->where('username',$name)->exists())$this->fail('USERNAME_TAKEN',409,'Username already exists.');
-        $row=['id'=>$this->id(),'username'=>$name,'role'=>'librarian'];
-        DB::table('library.user')->insert($row+['password_hash'=>password_hash($v['password'],PASSWORD_ARGON2ID)]);
-        return response()->json($row,201);
+
+    public function createUser(Request $r)
+    {
+        $v = $this->required($r, [
+            'username' => 'required|string|max:120',
+            'password' => 'required|string|min:8',
+            'role' => 'required|string',
+        ]);
+        return response()->json(
+            $this->createLibrarian->execute($v['username'], $v['password'], $v['role']),
+            201
+        );
     }
     public function categories() {return DB::table('library.category')->orderBy('name')->get();}
     public function books(Request $r) {
