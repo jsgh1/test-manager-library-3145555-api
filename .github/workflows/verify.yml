@@ -97,4 +97,23 @@ jobs:
           wait "$pid2"
           printf 'Concurrent status codes: %s %s\\n' "$(cat /tmp/status1)" "$(cat /tmp/status2)"
           test "$(cat /tmp/status1) $(cat /tmp/status2)" = "201 409" || test "$(cat /tmp/status1) $(cat /tmp/status2)" = "409 201"
-          echo "End-to-end PostgreSQL API contract and concurrency smoke tests passed."
+          # HU-01 / HU-02: the admin may create only librarians; librarians cannot exercise admin routes.
+          curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"username":"qa_librarian","password":"integration_librarian_password","role":"librarian"}' http://127.0.0.1:8000/api/v1/users | jq -e '.role=="librarian" and (has("password_hash")|not)'
+          lib_token=$(curl -fsS -H 'Content-Type: application/json' -d '{"username":"qa_librarian","password":"integration_librarian_password"}' http://127.0.0.1:8000/api/v1/auth/login | jq -r '.access_token')
+          test -n "$lib_token"
+          curl -fsS -H "Authorization: Bearer $lib_token" 'http://127.0.0.1:8000/api/v1/members' | jq -e 'has("items")'
+          role_status=$(curl -s -o /tmp/forbidden.json -w '%{http_code}' -H "Authorization: Bearer $lib_token" "http://127.0.0.1:8000/api/v1/reports/most-borrowed?from=$day&to=$day")
+          test "$role_status" = 403
+          jq -e '.code=="FORBIDDEN_ROLE"' /tmp/forbidden.json
+          book_role_status=$(curl -s -o /tmp/book_forbidden.json -w '%{http_code}' -H "Authorization: Bearer $lib_token" -H 'Content-Type: application/json' -d "{\"title\":\"Forbidden\",\"author\":\"Actor\",\"isbn\":\"9781111111111\",\"category_id\":\"$category\",\"total_copies\":1}" http://127.0.0.1:8000/api/v1/books)
+          test "$book_role_status" = 403
+          duplicate_isbn=$(curl -s -o /tmp/duplicate-isbn.json -w '%{http_code}' -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d "{\"title\":\"Duplicate\",\"author\":\"Actor\",\"isbn\":\"9781234567890\",\"category_id\":\"$category\",\"total_copies\":1}" http://127.0.0.1:8000/api/v1/books)
+          test "$duplicate_isbn" = 409
+          jq -e '.code=="ISBN_TAKEN"' /tmp/duplicate-isbn.json
+          duplicate_member=$(curl -s -o /tmp/duplicate-member.json -w '%{http_code}' -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"full_name":"Duplicate","document_number":"QA001"}' http://127.0.0.1:8000/api/v1/members)
+          test "$duplicate_member" = 409
+          jq -e '.code=="DOCUMENT_TAKEN"' /tmp/duplicate-member.json
+          open_loan_withdraw=$(curl -s -o /tmp/withdraw-conflict.json -w '%{http_code}' -X DELETE -H "Authorization: Bearer $token" http://127.0.0.1:8000/api/v1/books/$last_book)
+          test "$open_loan_withdraw" = 409
+          jq -e '.code=="BOOK_HAS_OPEN_LOANS"' /tmp/withdraw-conflict.json
+          echo "End-to-end PostgreSQL API contract, role matrix and concurrency smoke tests passed."
